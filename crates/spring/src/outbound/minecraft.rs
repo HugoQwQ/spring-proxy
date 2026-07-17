@@ -91,17 +91,17 @@ impl MinecraftOutbound {
         // so they are not replayed to the backend or misread here.
         stream.consume_peek(mc.sniff_position);
 
-        // Skip the status request packet (2 bytes: length=1, id=0)
-        let mut skip = [0u8; 2];
-        stream.read_exact(&mut skip).await?;
-
         if config.motd_favicon.is_empty() && config.motd_description.is_empty() {
-            // No custom MOTD: proxy from backend server
+            // No custom MOTD: proxy from backend server.
+            // Leave the status request in the peek buffer so it can be
+            // forwarded to the backend together with the rewritten handshake.
             drop(config);
             self.proxy_status_from_backend(stream, metadata).await
         } else {
-            // Custom MOTD
+            // Custom MOTD: we don't need the status request, consume it.
             drop(config);
+            let mut skip = [0u8; 2];
+            stream.read_exact(&mut skip).await?;
             self.send_custom_motd(stream, mc).await
         }
     }
@@ -129,7 +129,36 @@ impl MinecraftOutbound {
         let target_addr = format!("{}:{}", self.target_address, self.target_port);
         drop(config);
 
-        let mut target = async_net::TcpStream::connect(&target_addr).await?;
+        log::debug!("[{}] Resolving backend for status: {}", self.name, target_addr);
+        let mut target = match async_net::TcpStream::connect(&target_addr).await {
+            Ok(t) => {
+                if let Ok(peer) = t.peer_addr() {
+                    log::debug!(
+                        "[{}] Connected to {} (resolved: {})",
+                        self.name,
+                        target_addr,
+                        peer
+                    );
+                }
+                t
+            }
+            Err(e) => {
+                log::warn!(
+                    "[{}] Failed to connect to backend {} for status: {e}",
+                    self.name,
+                    target_addr
+                );
+                let msg = protocol::message::Message {
+                    color: "#FF5555".into(),
+                    text: format!(
+                        "§cUnable to connect to backend server.\n§7{}",
+                        e
+                    ),
+                    ..protocol::message::Message::default()
+                };
+                return self.send_kick(stream, &msg, "backend unreachable").await;
+            }
+        };
 
         // Build rewritten handshake packet for backend
         let mut handshake = BytesMut::new();
@@ -307,7 +336,37 @@ impl MinecraftOutbound {
         drop(config);
 
         // Connect to backend
-        let mut target = async_net::TcpStream::connect(&target_addr).await?;
+        log::debug!("[{}] Resolving backend: {}", self.name, target_addr);
+        let mut target = match async_net::TcpStream::connect(&target_addr).await {
+            Ok(t) => {
+                if let Ok(peer) = t.peer_addr() {
+                    log::debug!(
+                        "[{}] Connected to {} (resolved: {})",
+                        self.name,
+                        target_addr,
+                        peer
+                    );
+                }
+                t
+            }
+            Err(e) => {
+                log::warn!(
+                    "[{}] Failed to connect to backend {} for player {}: {e}",
+                    self.name,
+                    target_addr,
+                    mc.player_name
+                );
+                let msg = protocol::message::Message {
+                    color: "#FF5555".into(),
+                    text: format!(
+                        "§cUnable to connect to backend server.\n§7{}",
+                        e
+                    ),
+                    ..protocol::message::Message::default()
+                };
+                return self.send_kick(stream, &msg, "backend unreachable").await;
+            }
+        };
 
         // Build rewritten handshake packet
         let mut handshake = BytesMut::new();
