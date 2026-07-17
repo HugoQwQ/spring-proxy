@@ -1,0 +1,98 @@
+[workspace]
+members = [
+    "crates/spring",
+    "crates/protocol",
+    "crates/common",
+]
+default-members = ["crates/spring"]
+resolver = "3"
+
+[workspace.package]
+publish = false
+edition = "2024"
+
+[workspace.dependencies]
+# workspace member crates
+protocol = { path = "crates/protocol" }
+common = { path = "crates/common" }
+
+# external crates
+anyhow = "1.0.103"
+
+# smol-rs async runtime
+smol = "2.0"
+async-net = "2.0"
+async-io = "2.4"
+async-channel = "2.3"
+async-lock = "3.4"
+futures-lite = "2.0"
+
+bytes = "1.10"
+ctrlc = "3.4"
+
+parking_lot = { version = "0.12.5", features = ["hardware-lock-elision"] }
+log = { version = "0.4.33" }
+flexi_logger = { version = "0.31.9" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0"
+toml = { version = "1.1.3" }
+
+# from zed
+[profile.dev]
+split-debuginfo = "unpacked"
+incremental = true
+codegen-units = 16
+debug = "limited"
+
+[profile.dev.build-override]
+codegen-units = 16
+split-debuginfo = "unpacked"
+debug = "limited"
+
+[profile.dbg]
+inherits = "dev"
+debug = "full"
+
+[profile.dbg.build-override]
+debug = "full"
+[profile.release]
+debug = "limited"
+lto = "thin"
+codegen-units = 1
+
+[profile.release.package]
+spring = { codegen-units = 16 }
+
+[profile.release-fast]
+inherits = "release"
+debug = "full"
+lto = false
+codegen-units = 16
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "allow" }
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+declare_interior_mutable_const = "deny"
+redundant_clone = "deny"
+disallowed_methods = "deny"
+style = { level = "allow", priority = -1 }
+type_complexity = "allow"
+let_underscore_future = "allow"
+single_range_in_vec_init = "allow"
+too_many_arguments = "allow"
+large_enum_variant = "allow"
+nonminimal_bool = "allow"
+
+[workspace.metadata.cargo-machete]
+ignored = [
+    "bindgen",
+    "cbindgen",
+    "prost_build",
+    "serde",
+    "component",
+    "documented",
+    "sea-orm-macros",
+]
