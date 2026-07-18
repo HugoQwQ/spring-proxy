@@ -6,7 +6,6 @@
 use std::path::PathBuf;
 
 use spring::Runner;
-use spring::config::Root;
 
 fn main() {
     // Parse CLI args manually (keeping deps minimal)
@@ -26,31 +25,8 @@ fn main() {
 
     log::info!("Spring Proxy v{}", env!("CARGO_PKG_VERSION"));
 
-    // Load config
-    let config: Root = match std::fs::read_to_string(&config_path) {
-        Ok(content) => toml::from_str(&content).expect("failed to parse config"),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            log::warn!(
-                "Config file {:?} not found, generating default",
-                config_path
-            );
-            let default = Root::generate_default();
-            let toml_str = toml::to_string_pretty(&default).expect("failed to serialize config");
-            match std::fs::write(&config_path, &toml_str) {
-                Ok(_) => log::info!("Created default config at {:?}", config_path),
-                Err(e) => log::warn!("Could not create default config: {e}"),
-            }
-            default
-        }
-        Err(e) => {
-            panic!("failed to read config {:?}: {e}", config_path);
-        }
-    };
-
-    log::info!("Config loaded: {:?}", config_path);
-
-    // Run the proxy
-    let runner = Runner::new(config);
+    // Load config and run
+    let runner = Runner::from_config_file(&config_path).expect("failed to load config");
 
     smol::block_on(async {
         if let Err(e) = runner.run().await {

@@ -4,7 +4,7 @@
 //! and runs the proxy until a shutdown signal.
 
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::path::Path;
 use std::sync::Arc;
 
 use common::Error;
@@ -23,6 +23,37 @@ impl Runner {
     /// Create a new runner from a config root.
     pub fn new(config: Root) -> Self {
         Self { config }
+    }
+
+    /// Load a runner from a config file.
+    ///
+    /// If the file does not exist, generates a default config, writes it,
+    /// and continues with that default.
+    pub fn from_config_file(path: impl AsRef<Path>) -> Result<Self, Error> {
+        let path = path.as_ref();
+        let config: Root = match std::fs::read_to_string(path) {
+            Ok(content) => toml::from_str(&content)
+                .map_err(|e| Error::Internal(format!("failed to parse config: {e}")))?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                log::warn!("Config file {:?} not found, generating default", path);
+                let default = Root::generate_default();
+                let toml_str = toml::to_string_pretty(&default)
+                    .map_err(|e| Error::Internal(format!("failed to serialize config: {e}")))?;
+                match std::fs::write(path, &toml_str) {
+                    Ok(_) => log::info!("Created default config at {:?}", path),
+                    Err(e) => log::warn!("Could not create default config: {e}"),
+                }
+                default
+            }
+            Err(e) => {
+                return Err(Error::Internal(format!(
+                    "failed to read config {:?}: {e}",
+                    path
+                )));
+            }
+        };
+        log::info!("Config loaded: {:?}", path);
+        Ok(Self::new(config))
     }
 
     /// Run the proxy server.
@@ -104,109 +135,5 @@ fn build_outbound(config: &OutboundConfig) -> Result<Arc<dyn Outbound>, Error> {
             &config.target_address,
             config.target_port,
         )))
-    }
-}
-
-// Legacy simple config for backward compatibility
-
-/// Simple TOML-based configuration (legacy).
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-pub struct Config {
-    #[serde(default = "default_listen")]
-    pub listen: SocketAddr,
-    #[serde(default)]
-    pub routes: Vec<RouteConfig>,
-    #[serde(default)]
-    pub relay: crate::relay::RelayConfig,
-    #[serde(default)]
-    pub max_connections: usize,
-    #[serde(default = "default_handshake_timeout")]
-    pub handshake_timeout_secs: u64,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            listen: default_listen(),
-            routes: Vec::new(),
-            relay: crate::relay::RelayConfig::default(),
-            max_connections: 0,
-            handshake_timeout_secs: default_handshake_timeout(),
-        }
-    }
-}
-
-fn default_listen() -> SocketAddr {
-    "0.0.0.0:25565"
-        .parse()
-        .expect("invalid default listen address")
-}
-
-fn default_handshake_timeout() -> u64 {
-    5
-}
-
-/// A single route in the legacy config file.
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-pub struct RouteConfig {
-    #[serde(default = "default_match")]
-    pub match_on: String,
-    pub target: SocketAddr,
-    pub label: Option<String>,
-}
-
-fn default_match() -> String {
-    "any".into()
-}
-
-// Tests
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn parse_match_variants() {
-        use crate::router;
-        assert!(matches!(parse_match("any"), router::Match::Any));
-        assert!(matches!(
-            parse_match("host:hypixel.net"),
-            router::Match::Host(ref h) if h == "hypixel.net"
-        ));
-    }
-
-    fn parse_match(s: &str) -> crate::router::Match {
-        let s = s.trim();
-        if let Some((key, value)) = s.split_once(':') {
-            match key {
-                "host" => crate::router::Match::Host(value.to_string()),
-                "pattern" => crate::router::Match::Pattern(value.to_string()),
-                "proto" => value
-                    .parse::<i32>()
-                    .map(crate::router::Match::ProtocolVersion)
-                    .unwrap_or(crate::router::Match::Any),
-                "port" => value
-                    .parse::<u16>()
-                    .map(crate::router::Match::Port)
-                    .unwrap_or(crate::router::Match::Any),
-                "state" => match value {
-                    "login" => crate::router::Match::NextState(protocol::NextState::Login),
-                    "status" => crate::router::Match::NextState(protocol::NextState::Status),
-                    _ => crate::router::Match::Any,
-                },
-                _ => crate::router::Match::Any,
-            }
-        } else if s == "any" {
-            crate::router::Match::Any
-        } else {
-            crate::router::Match::Host(s.to_string())
-        }
-    }
-
-    #[test]
-    fn bare_string_is_host_match() {
-        use crate::router;
-        assert!(matches!(
-            parse_match("hypixel.net"),
-            router::Match::Host(ref h) if h == "hypixel.net"
-        ));
     }
 }

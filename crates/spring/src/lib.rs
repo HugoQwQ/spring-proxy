@@ -14,18 +14,15 @@
 //!
 //! 4. [`service`] — TCP listener that accepts connections and dispatches them.
 //!
-//! 5. [`config`] — configuration structures for services, router, outbounds, lists.
-//!
-//! 6. [`Runner`] — the top-level proxy orchestrator.
+//! 5. [`Runner`] — the top-level proxy orchestrator.
 //!    Interface: 1 method (`Runner::run`). Behind it: initialize outbounds → router → services.
 
 #![allow(clippy::style)]
 
-pub mod config;
+pub(crate) mod config;
 pub mod outbound;
 pub mod relay;
 pub mod route;
-pub mod router;
 pub mod runner;
 pub mod service;
 pub mod stream;
@@ -33,5 +30,4 @@ pub mod stream;
 pub use outbound::Outbound;
 pub use relay::relay;
 pub use route::Router;
-pub use router::{Match, Route, Router as SimpleRouter};
-pub use runner::{Config, Runner};
+pub use runner::Runner;
