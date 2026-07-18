@@ -1,0 +1,125 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.*'
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.vars.outputs.tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract tag and previous tag
+        id: vars
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          PREV_TAG=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)
+          echo "prev_tag=$PREV_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes
+        run: |
+          TAG="${{ steps.vars.outputs.tag }}"
+          PREV_TAG="${{ steps.vars.outputs.prev_tag }}"
+
+          {
+            echo "## Commits"
+            echo ""
+            if [ -n "$PREV_TAG" ]; then
+              git log "$PREV_TAG..$TAG" --pretty=format:"- %s (%h)"
+            else
+              git log --pretty=format:"- %s (%h)"
+            fi
+            echo ""
+            echo ""
+            if [ -n "$PREV_TAG" ]; then
+              echo "**Full Changelog**: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${PREV_TAG}...${TAG}"
+            else
+              echo "**Full Changelog**: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commits/${TAG}"
+            fi
+          } > release_notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.vars.outputs.tag }}" \
+            --title "${{ steps.vars.outputs.tag }}" \
+            --notes-file release_notes.md
+
+  build-and-upload:
+    name: Build ${{ matrix.suffix }}
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary: spring
+            suffix: linux-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            binary: spring
+            suffix: macos-aarch64
+          - os: macos-13
+            target: x86_64-apple-darwin
+            binary: spring
+            suffix: macos-x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: spring.exe
+            suffix: windows-x86_64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Strip binary (Unix)
+        if: matrix.os != 'windows-latest'
+        run: strip target/${{ matrix.target }}/release/${{ matrix.binary }}
+
+      - name: Package and upload (Unix)
+        if: matrix.os != 'windows-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ASSET_NAME="spring-${{ needs.create-release.outputs.tag }}-${{ matrix.suffix }}"
+          tar czf "${ASSET_NAME}.tar.gz" -C "target/${{ matrix.target }}/release" "${{ matrix.binary }}"
+          gh release upload "${{ needs.create-release.outputs.tag }}" "${ASSET_NAME}.tar.gz" --clobber
+
+      - name: Package and upload (Windows)
+        if: matrix.os == 'windows-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: powershell
+        run: |
+          $assetName = "spring-${{ needs.create-release.outputs.tag }}-${{ matrix.suffix }}"
+          Compress-Archive -Path "target/${{ matrix.target }}/release/${{ matrix.binary }}" -DestinationPath "${assetName}.zip"
+          gh release upload "${{ needs.create-release.outputs.tag }}" "${assetName}.zip" --clobber
