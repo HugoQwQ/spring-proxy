@@ -1,4 +1,6 @@
 # Spring Proxy
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FHugoQwQ%2Fspring-proxy.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FHugoQwQ%2Fspring-proxy?ref=badge_shield)
+
 
 A high-performance TCP relay for Minecraft based on Rust, inspired by [ZBProxy](https://github.com/layou233/ZBProxy).
 
@@ -12,3 +14,6 @@ A high-performance TCP relay for Minecraft based on Rust, inspired by [ZBProxy](
 ## License
 
 MIT
+
+
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FHugoQwQ%2Fspring-proxy.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2FHugoQwQ%2Fspring-proxy?ref=badge_large)
